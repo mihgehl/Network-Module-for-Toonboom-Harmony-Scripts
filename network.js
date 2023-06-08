@@ -15,110 +15,121 @@
  */
 
 function Connection() {
-    this.timeout = 50000; // 50 seconds timeout
+  this.timeout = 50000; // 50 seconds timeout
 
-    this.curlPath = this.bin.split("/").slice(0, -1).join("\\"); // Curl binary full path
-    this.curlBin = this.bin.split("/").pop(); // Curl binary file (without path)
+  this.curlPath = this.bin.split("/").slice(0, -1).join("\\"); // Curl binary full path
+  this.curlBin = this.bin.split("/").pop(); // Curl binary file (without path)
 
-    this.process = new QProcess();
-    // this.process.setWorkingDirectory(this.curlPath); // Set process working directory to curl folder
-    // this.process.waitForFinished(this.timeout);
+  this.process = new QProcess();
+  // this.process.setWorkingDirectory(this.curlPath); // Set process working directory to curl folder
+  // this.process.waitForFinished(this.timeout);
 
-    this.command = [];
+  this.command = [];
 
-    if (this.curlPath.indexOf("bin_3rdParty") !== -1) {
-        this.command = ["--insecure"].concat(this.command);
-    }
+  if (this.curlPath.indexOf("bin_3rdParty") !== -1) {
+    this.command = ["--insecure"].concat(this.command);
+  }
 }
 
 Connection.prototype.get = function (url) {
-    this.process.start(this.bin, ["-L", url].concat(this.command));
-    this.process.waitForFinished(this.timeout);
-    var result = new QTextStream(this.process.readAllStandardOutput()).readAll();
-    return JSON.parse(result);
+  this.process.start(this.bin, ["-L", url].concat(this.command));
+  this.process.waitForFinished(this.timeout);
+  var result = new QTextStream(this.process.readAllStandardOutput()).readAll();
+  return JSON.parse(result);
 };
 
 Connection.prototype.asyncGet = function (context, url, callbackFunction) {
-    this.process.start(this.bin, ["-L", url].concat(this.command));
-    this.process["finished(int)"].connect(this, function (code) {
-        var stdout = this.process.readAllStandardOutput();
-        callbackFunction.call(context, JSON.parse(stdout));
-    });
+  this.process.start(this.bin, ["-L", url].concat(this.command));
+  this.process["finished(int)"].connect(this, function (code) {
+    var stdout = this.process.readAllStandardOutput();
+    callbackFunction.call(context, JSON.parse(stdout));
+  });
 };
 
 Connection.prototype.download = function (url, destinationPath) {
-    var file = new QFile(destinationPath);
-    if (file.exists) file.remove();
+  var file = new QFile(destinationPath);
+  if (file.exists) file.remove();
 
-    this.process.start(this.bin, ["-L", "-o", destinationPath, url].concat(this.command));
-    this.process.waitForFinished(this.timeout);
-    if (file.exists) {
-        return file;
-    } else {
-        throw new Error("File download Failed");
-    }
+  this.process.start(
+    this.bin,
+    ["-L", "-o", destinationPath, url].concat(this.command)
+  );
+  this.process.waitForFinished(this.timeout);
+  if (file.exists) {
+    return file;
+  } else {
+    throw new Error("File download Failed");
+  }
 };
 
-Connection.prototype.asyncDownload = function (context, url, destinationPath, onFinishFunction) {
-    try {
-        var file = new QFile(destinationPath);
-        if (file.exists) file.remove();
+Connection.prototype.asyncDownload = function (
+  context,
+  url,
+  destinationPath,
+  onSuccessCallback,
+  onErrorCallback
+) {
+  try {
+    var errorLog = "";
+    var file = new QFile(destinationPath);
+    if (file.exists()) file.remove();
 
-        this.process.start(this.bin, ["-L", "-o", destinationPath, url].concat(this.command));
+    this.process.readyReadStandardOutput.connect(this, function () {
+      try {
+        errorLog += new QTextStream(
+          this.process.readAllStandardOutput()
+        ).readAll();
+      } catch (error) {
+        errorLog += error;
+      }
+    });
 
-        // this.process.readyRead.connect(this, function (something) {
-        //     try {
-        //         MessageLog.trace("Something: " + something);
-        //     } catch (error) {
-        //         MessageLog.trace(error);
-        //     }
-        // });
+    this.process.start(
+      this.bin,
+      ["-L", "-o", destinationPath, url].concat(this.command)
+    );
 
-        // this.process.readyReadStandardOutput.connect(this, function () {
-        //     try {
-        //         MessageLog.trace(new QTextStream(this.process.readAllStandardOutput()).readAll());
-        //     } catch (error) {
-        //         MessageLog.trace(error);
-        //     }
-        // });
-
-        this.process["finished(int)"].connect(this, function (code) {
-            if (file.exists) {
-                onFinishFunction.call(context, file);
-            } else {
-                throw new Error("File download Failed");
-            }
-        });
-    } catch (error) {
-        MessageLog.trace(error);
-    }
+    this.process["finished(int)"].connect(this, function (code) {
+      if (file.exists()) {
+        onSuccessCallback.call(context, file);
+      } else {
+        onErrorCallback.call(context, errorLog);
+      }
+    });
+  } catch (error) {
+    MessageLog.trace(error);
+  }
 };
 
 Object.defineProperty(Connection.prototype, "bin", {
-    get: function () {
-        if (typeof Connection.__proto__.bin === "undefined") {
-            if (about.isWindowsArch()) {
-                var curls = [
-                    specialFolders.bin + "/bin_3rdParty/curl.exe",
-                    System.getenv("ProgramFiles") + "/Git/mingw64/bin/curl.exe",
-                    System.getenv("windir") + "/system32/curl.exe",
-                ];
-            } else {
-                var curls = ["/usr/bin/curl", "/usr/local/bin/curl", specialFolders.bin + "/bin_3rdParty/curl"];
-            }
+  get: function () {
+    if (typeof Connection.__proto__.bin === "undefined") {
+      if (about.isWindowsArch()) {
+        var curls = [
+          specialFolders.bin + "/bin_3rdParty/curl.exe",
+          System.getenv("ProgramFiles") + "/Git/mingw64/bin/curl.exe",
+          System.getenv("windir") + "/system32/curl.exe",
+        ];
+      } else {
+        var curls = [
+          "/usr/bin/curl",
+          "/usr/local/bin/curl",
+          specialFolders.bin + "/bin_3rdParty/curl",
+        ];
+      }
 
-            for (var curl in curls) {
-                if (new File(curls[curl]).exists) {
-                    Connection.__proto__.bin = curls[curl];
-                    return curls[curl];
-                }
-            }
-
-            throw new Error("Please Install CURL");
-        } else {
-            return Connection.__proto__.bin;
+      for (var curl in curls) {
+        if (new File(curls[curl]).exists) {
+          Connection.__proto__.bin = curls[curl];
+          return curls[curl];
         }
-    },
+      }
+
+      throw new Error("Please Install CURL");
+    } else {
+      return Connection.__proto__.bin;
+    }
+  },
 });
 
 exports.Connection = Connection;
